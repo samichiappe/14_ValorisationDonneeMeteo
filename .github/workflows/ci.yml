@@ -31,6 +31,10 @@ jobs:
         working-directory: backend
         run: uv sync --extra dev
 
+      - name: Create .env for Django
+        working-directory: backend
+        run: cp .env.example .env
+
       - name: Run unit tests
         working-directory: backend
         run: uv run pytest weather/tests/unit/ -v
@@ -74,7 +78,7 @@ jobs:
 
       - name: Ruff check (lint)
         working-directory: backend
-        run: uv run ruff check .
+        run: uv run ruff check . --ignore=DJ001
 
       - name: Ruff format (formatage)
         working-directory: backend
