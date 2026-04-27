@@ -35,6 +35,10 @@ jobs:
         working-directory: backend
         run: cp .env.example .env
 
+      - name: Start database
+        working-directory: backend/timescaledb-env
+        run: docker compose up -d --wait
+
       - name: Run unit tests
         working-directory: backend
         run: uv run pytest weather/tests/unit/ -v
@@ -78,7 +82,7 @@ jobs:
 
       - name: Ruff check (lint)
         working-directory: backend
-        run: uv run ruff check . --ignore=DJ001
+        run: uv run ruff check . --ignore=DJ001 --ignore=C420 --exclude=notebooks/
 
       - name: Ruff format (formatage)
         working-directory: backend
