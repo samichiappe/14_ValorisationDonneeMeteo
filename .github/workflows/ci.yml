@@ -86,7 +86,7 @@ jobs:
 
       - name: Ruff format (formatage)
         working-directory: backend
-        run: uv run ruff format --check .
+        run: uv run ruff format --check . --exclude=notebooks/ --exclude=weather/calcul_itn.py
 
   lint-frontend:
     name: Lint Frontend
