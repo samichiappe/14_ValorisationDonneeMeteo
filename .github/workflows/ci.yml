@@ -1,0 +1,169 @@
+# Pipeline CI/CD - Valorisation Donnée Météo
+# Se déclenche à chaque push et pull request
+# Étapes : install → test → lint → security scan → build docker → push (main only)
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+
+  # -------------------------------------------------------
+  # ÉTAPE 1+2 : Install + Tests backend (Python / pytest)
+  # -------------------------------------------------------
+  test-backend:
+    name: Tests Backend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (gestionnaire de paquets Python)
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --extra dev
+
+      - name: Run unit tests
+        working-directory: backend
+        run: uv run pytest weather/tests/unit/ -v
+
+  # -------------------------------------------------------
+  # ÉTAPE 1+2 : Install + Tests frontend (Node / vitest)
+  # -------------------------------------------------------
+  test-frontend:
+    name: Tests Frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Run tests
+        working-directory: frontend
+        run: npm run test:ci
+
+  # -------------------------------------------------------
+  # ÉTAPE 3 : Lint (vérification qualité du code)
+  # -------------------------------------------------------
+  lint-backend:
+    name: Lint Backend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --extra dev
+
+      - name: Ruff check (lint)
+        working-directory: backend
+        run: uv run ruff check .
+
+      - name: Ruff format (formatage)
+        working-directory: backend
+        run: uv run ruff format --check .
+
+  lint-frontend:
+    name: Lint Frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: ESLint
+        working-directory: frontend
+        run: npx eslint --ext .js,.ts,.vue .
+
+  # -------------------------------------------------------
+  # ÉTAPE 4 : Security scan (Trivy)
+  # -------------------------------------------------------
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy - scan des vulnérabilités
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "table"
+          exit-code: "0"
+          severity: "CRITICAL,HIGH"
+
+  # -------------------------------------------------------
+  # ÉTAPE 5 : Build des images Docker
+  # -------------------------------------------------------
+  build-docker:
+    name: Build Docker
+    runs-on: ubuntu-24.04
+    needs: [test-backend, test-frontend, lint-backend, lint-frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -t meteo-backend:test ./backend
+
+      - name: Build frontend image
+        run: docker build -t meteo-frontend:test ./frontend
+
+  # -------------------------------------------------------
+  # ÉTAPE 6 : Push sur le registry (uniquement sur main)
+  # -------------------------------------------------------
+  push-registry:
+    name: Push Registry
+    runs-on: ubuntu-24.04
+    needs: [build-docker, security-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase image name
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push backend
+        run: |
+          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest ./backend
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest
+
+      - name: Build & push frontend
+        run: |
+          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest ./frontend
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest

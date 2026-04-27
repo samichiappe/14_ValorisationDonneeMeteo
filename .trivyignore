@@ -1,0 +1,4 @@
+# Trivy Ignore File
+# Liste des CVE à ignorer (faux positifs ou risques acceptés)
+# Format : une CVE par ligne
+# Documentation : https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/#by-finding-ids
